@@ -1,0 +1,470 @@
+/* ============================================================
+   Vessel Tracker — visual system
+
+   Subject: a small boat crossing open water, watched from shore by
+   people who love the crew. The page's one job: "where are they now,
+   and where have they been." The live position is the hero; the wake
+   behind it is history.
+
+   Palette pulled from nautical charts, not the usual dashboard defaults:
+     --deep    #0b2b3a  chart-sea ink (panel, text)
+     --hull    #123b4f  slightly lifted sea
+     --paper   #eae3d2  weathered chart paper (panel ground)
+     --buoy    #e4572e  buoy/port-hand red — the live position marker
+     --wake    #2e6f8e  the vessel's trail
+     --brass   #c9a227  brasswork accent, used sparingly
+   ============================================================ */
+
+:root {
+  --deep: #0b2b3a;
+  --hull: #123b4f;
+  --paper: #eae3d2;
+  --paper-dim: #d8cfb8;
+  --buoy: #e4572e;
+  --wake: #2e6f8e;
+  --brass: #c9a227;
+
+  --panel-w: 380px;
+}
+
+* { box-sizing: border-box; }
+
+html, body {
+  margin: 0;
+  height: 100%;
+  font-family: ui-sans-serif, system-ui, -apple-system, "Segoe UI", Roboto, sans-serif;
+  color: var(--deep);
+  background: var(--deep);
+}
+
+#map {
+  position: absolute;
+  inset: 0;
+  z-index: 1;
+}
+
+/* ---- Side panel: a brass-edged chart plate over the map ---- */
+/* Sits top-right; the MapLibre navigation control is placed top-left. */
+#panel {
+  position: absolute;
+  z-index: 1000;
+  top: 16px;
+  right: 16px;
+  width: var(--panel-w);
+  max-width: calc(100vw - 32px);
+  background: var(--paper);
+  border: 1px solid var(--paper-dim);
+  border-radius: 4px;
+  box-shadow: 0 8px 30px rgba(0, 0, 0, 0.35);
+  padding: 18px 20px 14px;
+}
+
+.panel-head {
+  margin-bottom: 16px;
+}
+
+.panel-head h1 {
+  margin: 0;
+  font-size: 1.05rem;
+  font-weight: 700;
+  letter-spacing: 0.02em;
+  text-transform: uppercase;
+  text-align: center;
+}
+
+/* ---- Live position readout: the hero of the panel ---- */
+.readout {
+  padding: 12px 0 14px;
+  border-top: 1px solid var(--paper-dim);
+  border-bottom: 1px solid var(--paper-dim);
+}
+
+.readout-label {
+  font-size: 0.68rem;
+  text-transform: uppercase;
+  letter-spacing: 0.12em;
+  color: var(--hull);
+  opacity: 0.75;
+  margin-bottom: 6px;
+}
+
+.readout-coords {
+  font-family: ui-monospace, "SF Mono", "Cascadia Code", Menlo, monospace;
+  font-size: 1.15rem;
+  font-weight: 600;
+  line-height: 1.25;
+  color: var(--deep);
+  /* Never break a coordinate mid-value across lines. */
+  white-space: nowrap;
+}
+
+.readout-time {
+  margin-top: 4px;
+  font-size: 0.8rem;
+  color: var(--hull);
+}
+
+/* ---- Environment readings ---- */
+/* No border-top here — .readout's border-bottom already closes that section. */
+.env:not(:empty) {
+  margin: 14px 0 12px;
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 6px 16px;
+}
+
+.env-item {
+  display: flex;
+  flex-direction: column;
+}
+
+.env-item .label {
+  font-size: 0.66rem;
+  text-transform: uppercase;
+  letter-spacing: 0.08em;
+  color: var(--hull);
+  opacity: 0.75;
+}
+
+.env-item .value {
+  font-family: ui-monospace, "SF Mono", "Cascadia Code", Menlo, monospace;
+  font-size: 0.95rem;
+  font-weight: 600;
+}
+
+/* ---- Foot / status line ---- */
+.panel-foot {
+  font-size: 0.72rem;
+  color: var(--hull);
+  opacity: 0.8;
+  display: flex;
+  align-items: center;
+  gap: 7px;
+}
+
+.panel-foot::before {
+  content: "";
+  width: 7px;
+  height: 7px;
+  border-radius: 50%;
+  background: var(--brass);
+  flex: none;
+}
+
+.panel-foot.live::before { background: #3a9d5d; }
+.panel-foot.stale::before { background: var(--buoy); }
+
+/* ---- Map marker: the live position, a pulsing buoy ---- */
+/* The only marker not drawn on the GL canvas — MapLibre positions this DOM
+   element over the map. It needs no pointer-events guard: logged points are
+   hit-tested by querying rendered features at the cursor, not by DOM z-order,
+   so the buoy cannot swallow a click meant for the point beneath it. */
+.vessel-dot {
+  width: 16px;
+  height: 16px;
+  background: var(--buoy);
+  border: 2px solid var(--paper);
+  border-radius: 50%;
+  box-shadow: 0 0 0 rgba(228, 87, 46, 0.6);
+  animation: pulse 2.4s ease-out infinite;
+}
+
+@keyframes pulse {
+  0%   { box-shadow: 0 0 0 0 rgba(228, 87, 46, 0.5); }
+  70%  { box-shadow: 0 0 0 16px rgba(228, 87, 46, 0); }
+  100% { box-shadow: 0 0 0 0 rgba(228, 87, 46, 0); }
+}
+
+/* ---- Point popups: a small chart-paper plate at the fix ---- */
+.maplibregl-popup-content {
+  background: var(--paper);
+  color: var(--deep);
+  border-radius: 3px;
+  border-top: 2px solid var(--brass);
+  box-shadow: 0 6px 20px rgba(0, 0, 0, 0.3);
+  padding: 10px 12px;
+  font-family: ui-sans-serif, system-ui, -apple-system, "Segoe UI", Roboto, sans-serif;
+}
+
+/* The tip is an SVG-ish wedge per anchor position; colour them all. */
+.maplibregl-popup-anchor-top .maplibregl-popup-tip { border-bottom-color: var(--brass); }
+.maplibregl-popup-anchor-top-left .maplibregl-popup-tip { border-bottom-color: var(--brass); }
+.maplibregl-popup-anchor-top-right .maplibregl-popup-tip { border-bottom-color: var(--brass); }
+.maplibregl-popup-anchor-bottom .maplibregl-popup-tip { border-top-color: var(--paper); }
+.maplibregl-popup-anchor-bottom-left .maplibregl-popup-tip { border-top-color: var(--paper); }
+.maplibregl-popup-anchor-bottom-right .maplibregl-popup-tip { border-top-color: var(--paper); }
+.maplibregl-popup-anchor-left .maplibregl-popup-tip { border-right-color: var(--paper); }
+.maplibregl-popup-anchor-right .maplibregl-popup-tip { border-left-color: var(--paper); }
+
+.maplibregl-popup-close-button {
+  color: var(--hull);
+  font-size: 1.1rem;
+  padding: 0 5px;
+}
+
+.maplibregl-popup-close-button:hover {
+  background: transparent;
+  color: var(--deep);
+}
+
+.point-popup {
+  /* Keep the dual local/UTC timestamp on one line. */
+  min-width: 280px;
+}
+
+.pp-when {
+  font-size: 0.7rem;
+  color: var(--hull);
+  opacity: 0.75;
+  white-space: nowrap;
+}
+
+.pp-where {
+  font-family: ui-monospace, "SF Mono", "Cascadia Code", Menlo, monospace;
+  font-size: 0.95rem;
+  font-weight: 600;
+  margin-top: 3px;
+  white-space: nowrap;
+}
+
+.pp-env {
+  display: grid;
+  grid-template-columns: auto auto;
+  gap: 2px 12px;
+  margin: 8px 0 0;
+  padding-top: 8px;
+  border-top: 1px solid var(--paper-dim);
+}
+
+.pp-env dt {
+  font-size: 0.7rem;
+  color: var(--hull);
+  opacity: 0.8;
+}
+
+.pp-env dd {
+  margin: 0;
+  font-family: ui-monospace, "SF Mono", "Cascadia Code", Menlo, monospace;
+  font-size: 0.78rem;
+  font-weight: 600;
+  text-align: right;
+}
+
+/* ---- Responsive: panel docks to the bottom on narrow screens ---- */
+@media (max-width: 560px) {
+  #panel {
+    top: auto;
+    bottom: 0;
+    left: 0;
+    right: 0;
+    width: 100%;
+    max-width: 100%;
+    border-radius: 12px 12px 0 0;
+    border-left: none;
+    border-right: none;
+    border-bottom: none;
+  }
+}
+
+/* ---- Date range: a footer control below the status line ---- */
+/* Sits at the very bottom of the panel so the live position stays the hero.
+   Reads as a readout first (it shows the track's real span until touched)
+   and a control second. */
+.range {
+  margin-top: 12px;
+  padding-top: 12px;
+  border-top: 1px solid var(--paper-dim);
+}
+
+.range-label {
+  font-size: 0.68rem;
+  text-transform: uppercase;
+  letter-spacing: 0.12em;
+  color: var(--hull);
+  opacity: 0.75;
+  margin-bottom: 6px;
+}
+
+.range-inputs {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.range-inputs input[type="date"] {
+  flex: 1;
+  min-width: 0;
+  font-family: ui-monospace, "SF Mono", "Cascadia Code", Menlo, monospace;
+  font-size: 0.78rem;
+  color: var(--deep);
+  background: rgba(255, 255, 255, 0.5);
+  border: 1px solid var(--paper-dim);
+  border-radius: 3px;
+  padding: 4px 6px;
+}
+
+.range-sep {
+  color: var(--hull);
+  opacity: 0.6;
+  font-size: 0.8rem;
+  flex: none;
+}
+
+.range-reset {
+  margin-top: 8px;
+  width: 100%;
+  font-family: inherit;
+  font-size: 0.7rem;
+  text-transform: uppercase;
+  letter-spacing: 0.08em;
+  color: var(--hull);
+  background: transparent;
+  border: 1px solid var(--paper-dim);
+  border-radius: 3px;
+  padding: 5px;
+  cursor: pointer;
+}
+
+.range-reset:hover {
+  border-color: var(--brass);
+  color: var(--deep);
+}
+
+/* ---- Export ---- */
+.export {
+  margin-top: 10px;
+}
+
+.export-btn {
+  width: 100%;
+  font-family: inherit;
+  font-size: 0.72rem;
+  font-weight: 600;
+  text-transform: uppercase;
+  letter-spacing: 0.1em;
+  color: var(--paper);
+  background: var(--hull);
+  border: 1px solid var(--hull);
+  border-radius: 3px;
+  padding: 7px;
+  cursor: pointer;
+}
+
+.export-btn:hover {
+  background: var(--deep);
+  border-color: var(--brass);
+}
+
+/* ---- Export format picker ---- */
+/* Above the panel (z 1000) and MapLibre's controls. */
+.modal {
+  position: fixed;
+  inset: 0;
+  z-index: 2000;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 16px;
+}
+
+.modal[hidden] { display: none; }
+
+.modal-backdrop {
+  position: absolute;
+  inset: 0;
+  background: rgba(11, 43, 58, 0.55);
+}
+
+.modal-card {
+  position: relative;
+  width: 100%;
+  max-width: 400px;
+  background: var(--paper);
+  border-top: 2px solid var(--brass);
+  border-radius: 4px;
+  box-shadow: 0 12px 40px rgba(0, 0, 0, 0.45);
+  padding: 18px 20px 16px;
+}
+
+.modal-title {
+  margin: 0;
+  font-size: 0.95rem;
+  font-weight: 700;
+  text-transform: uppercase;
+  letter-spacing: 0.02em;
+}
+
+.modal-sub {
+  margin: 4px 0 14px;
+  font-size: 0.72rem;
+  color: var(--hull);
+  opacity: 0.8;
+}
+
+.modal-formats {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+
+.fmt {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  text-align: left;
+  font-family: inherit;
+  background: rgba(255, 255, 255, 0.45);
+  border: 1px solid var(--paper-dim);
+  border-radius: 3px;
+  padding: 9px 11px;
+  cursor: pointer;
+}
+
+.fmt:hover {
+  border-color: var(--brass);
+  background: rgba(255, 255, 255, 0.75);
+}
+
+.fmt-name {
+  font-size: 0.82rem;
+  font-weight: 700;
+  letter-spacing: 0.04em;
+  color: var(--deep);
+}
+
+.fmt-note {
+  font-size: 0.68rem;
+  color: var(--hull);
+  opacity: 0.8;
+  line-height: 1.35;
+}
+
+.modal-cancel {
+  margin-top: 12px;
+  width: 100%;
+  font-family: inherit;
+  font-size: 0.7rem;
+  text-transform: uppercase;
+  letter-spacing: 0.08em;
+  color: var(--hull);
+  background: transparent;
+  border: 1px solid var(--paper-dim);
+  border-radius: 3px;
+  padding: 6px;
+  cursor: pointer;
+}
+
+.modal-cancel:hover {
+  border-color: var(--brass);
+  color: var(--deep);
+}
+
+/* ---- Accessibility floors ---- */
+:focus-visible {
+  outline: 2px solid var(--brass);
+  outline-offset: 2px;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .vessel-dot { animation: none; }
+}

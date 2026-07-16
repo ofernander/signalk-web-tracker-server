@@ -1,0 +1,83 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>SignalK-Web-Tracker</title>
+
+  <!-- MapLibre GL JS from CDN. WebGL renderer for vector tiles. -->
+  <link
+    rel="stylesheet"
+    href="https://unpkg.com/maplibre-gl@5.6.0/dist/maplibre-gl.css"
+  />
+  <link rel="stylesheet" href="style.css" />
+</head>
+<body>
+  <div id="map" aria-label="Map showing the vessel's route"></div>
+
+  <aside id="panel" aria-live="polite">
+    <div class="panel-head">
+      <h1 id="vessel-name">SignalK-Web-Tracker</h1>
+    </div>
+
+    <div class="readout">
+      <div class="readout-label">Last known position</div>
+      <div class="readout-coords" id="coords">Waiting for position…</div>
+      <div class="readout-time" id="fix-time"></div>
+    </div>
+
+    <div class="env" id="env"></div>
+
+    <div class="panel-foot" id="status">Connecting…</div>
+
+    <!-- Date range. Hidden until a track loads; the inputs are clamped to the
+         track's real span so an empty selection isn't reachable. -->
+    <div class="range" id="range" hidden>
+      <div class="range-label">Date range</div>
+      <div class="range-inputs">
+        <input type="date" id="range-from" aria-label="From date" />
+        <span class="range-sep">→</span>
+        <input type="date" id="range-to" aria-label="To date" />
+      </div>
+      <button type="button" class="range-reset" id="range-reset" hidden>Show whole track</button>
+    </div>
+
+    <!-- Export. Hidden until a track loads. Exports whatever is currently
+         displayed — the date range filters both the map and the download. -->
+    <div class="export" id="export" hidden>
+      <button type="button" class="export-btn" id="export-btn">Export</button>
+    </div>
+  </aside>
+
+  <!-- Format picker. Hidden until Export is clicked. -->
+  <div class="modal" id="export-modal" hidden>
+    <div class="modal-backdrop" id="export-backdrop"></div>
+    <div class="modal-card" role="dialog" aria-modal="true" aria-labelledby="export-modal-title">
+      <h2 class="modal-title" id="export-modal-title">Export track</h2>
+      <p class="modal-sub" id="export-modal-sub"></p>
+      <div class="modal-formats">
+        <button type="button" class="fmt" data-fmt="gpx">
+          <span class="fmt-name">GPX</span>
+          <span class="fmt-note">Chart plotters — OpenCPN, Garmin, Navionics. Position and time only.</span>
+        </button>
+        <button type="button" class="fmt" data-fmt="csv">
+          <span class="fmt-name">CSV</span>
+          <span class="fmt-note">Spreadsheets. Includes every recorded reading.</span>
+        </button>
+        <button type="button" class="fmt" data-fmt="geojson">
+          <span class="fmt-name">GeoJSON</span>
+          <span class="fmt-note">Mapping tools. Includes every recorded reading.</span>
+        </button>
+        <button type="button" class="fmt" data-fmt="kml">
+          <span class="fmt-name">KML</span>
+          <span class="fmt-note">Google Earth.</span>
+        </button>
+      </div>
+      <button type="button" class="modal-cancel" id="export-cancel">Cancel</button>
+    </div>
+  </div>
+
+  <script src="https://unpkg.com/maplibre-gl@5.6.0/dist/maplibre-gl.js"></script>
+  <script src="app.js"></script>
+</body>
+</html>
