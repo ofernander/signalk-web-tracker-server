@@ -16,36 +16,59 @@
   <div id="map" aria-label="Map showing the vessel's route"></div>
 
   <aside id="panel" aria-live="polite">
+    <!-- Tap target for the mobile collapse. Hidden on desktop, where the panel
+         is never collapsed. -->
+    <button type="button" class="panel-handle" id="panel-handle"
+            aria-expanded="true" aria-controls="panel-body">
+      <span class="panel-handle-grip"></span>
+      <span class="sr-only">Toggle panel details</span>
+    </button>
+
+    <!-- Browser -> server fetch failure. NOT a boat problem: the boat pushes to
+         the server on its own schedule and isn't in this path at all. Fires on
+         two consecutive failed polls, clears on the next success. -->
+    <div class="server-error" id="server-error" role="alert" hidden>
+      Tracking server offline
+    </div>
+
     <div class="panel-head">
       <h1 id="vessel-name">SignalK-Web-Tracker</h1>
     </div>
 
     <div class="readout">
-      <div class="readout-label">Last known position</div>
+      <!-- The age is a fact, not a heading — it sits in the label but drops the
+           uppercase treatment so the two read as label + data. -->
+      <div class="readout-label">Last known position<span class="readout-age" id="fix-age"></span></div>
       <div class="readout-coords" id="coords">Waiting for position…</div>
       <div class="readout-time" id="fix-time"></div>
     </div>
 
-    <div class="env" id="env"></div>
+    <!-- Everything below the position collapses on mobile. -->
+    <div class="panel-body" id="panel-body">
+      <div class="env" id="env"></div>
 
-    <div class="panel-foot" id="status">Connecting…</div>
-
-    <!-- Date range. Hidden until a track loads; the inputs are clamped to the
-         track's real span so an empty selection isn't reachable. -->
-    <div class="range" id="range" hidden>
-      <div class="range-label">Date range</div>
-      <div class="range-inputs">
-        <input type="date" id="range-from" aria-label="From date" />
-        <span class="range-sep">→</span>
-        <input type="date" id="range-to" aria-label="To date" />
+      <!-- Date range. Hidden until a track loads; the inputs are clamped to the
+           track's real span so an empty selection isn't reachable. -->
+      <div class="range" id="range" hidden>
+        <div class="range-label">Date range</div>
+        <div class="range-inputs">
+          <input type="date" id="range-from" aria-label="From date" />
+          <span class="range-sep">→</span>
+          <input type="date" id="range-to" aria-label="To date" />
+          <!-- Export sits on the range row: you narrow a range, you export what
+               it shows. Icon-only — it's a rare action and a full-width bar gave
+               it more weight than it earns. -->
+          <button type="button" class="export-icon" id="export-btn"
+                  aria-label="Export track" title="Export track" hidden>
+            <svg viewBox="0 0 16 16" width="14" height="14" aria-hidden="true" focusable="false">
+              <path d="M8 1v9M4.5 6.5L8 10l3.5-3.5M2 13h12"
+                    fill="none" stroke="currentColor" stroke-width="1.6"
+                    stroke-linecap="round" stroke-linejoin="round" />
+            </svg>
+          </button>
+        </div>
+        <button type="button" class="range-reset" id="range-reset" hidden>Show whole track</button>
       </div>
-      <button type="button" class="range-reset" id="range-reset" hidden>Show whole track</button>
-    </div>
-
-    <!-- Export. Hidden until a track loads. Exports whatever is currently
-         displayed — the date range filters both the map and the download. -->
-    <div class="export" id="export" hidden>
-      <button type="button" class="export-btn" id="export-btn">Export</button>
     </div>
   </aside>
 

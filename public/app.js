@@ -13,7 +13,6 @@
 'use strict';
 
 const POLL_MS = 60 * 1000;                 // refresh cadence
-const STALE_AFTER_MS = 3 * 60 * 60 * 1000; // 3h without a new fix = "stale"
 
 const BASEMAP_STYLE = '/map_style.json';
 const SEAMARK_TILES = 'https://tiles.openseamap.org/seamark/{z}/{x}/{y}.png';
@@ -53,19 +52,22 @@ const el = {
   vesselName: document.getElementById('vessel-name'),
   coords: document.getElementById('coords'),
   fixTime: document.getElementById('fix-time'),
+  fixAge: document.getElementById('fix-age'),
   env: document.getElementById('env'),
-  status: document.getElementById('status'),
   range: document.getElementById('range'),
   rangeFrom: document.getElementById('range-from'),
   rangeTo: document.getElementById('range-to'),
   rangeReset: document.getElementById('range-reset'),
-  exportWrap: document.getElementById('export'),
   exportBtn: document.getElementById('export-btn'),
   exportModal: document.getElementById('export-modal'),
   exportBackdrop: document.getElementById('export-backdrop'),
   exportCancel: document.getElementById('export-cancel'),
-  exportModalSub: document.getElementById('export-modal-sub')
+  exportModalSub: document.getElementById('export-modal-sub'),
+  serverError: document.getElementById('server-error')
 };
+
+const panel = document.getElementById('panel');
+const panelHandle = document.getElementById('panel-handle');
 
 // Full track as fetched. currentPoints holds the FILTERED view — everything
 // rendered (route, points, marker, readouts) and, later, everything exported
@@ -145,10 +147,24 @@ function renderEnv(env) {
   }
 }
 
-function setStatus(text, kind) {
-  el.status.textContent = text;
-  el.status.classList.remove('live', 'stale');
-  if (kind) el.status.classList.add(kind);
+/**
+ * Relative age of a fix, in the largest unit that still reads naturally.
+ * No judgment attached: a boat that surfaces once a day is not "stale", it's
+ * a boat that surfaces once a day. The viewer knows their boat's habits; the
+ * page does not.
+ */
+function fmtAge(tsSec) {
+  const secs = Math.max(0, Math.floor(Date.now() / 1000 - tsSec));
+  if (secs < 60) return 'just now';
+
+  const mins = Math.floor(secs / 60);
+  if (mins < 60) return `${mins} minute${mins === 1 ? '' : 's'} ago`;
+
+  const hours = Math.floor(mins / 60);
+  if (hours < 24) return `${hours} hour${hours === 1 ? '' : 's'} ago`;
+
+  const days = Math.floor(hours / 24);
+  return `${days} day${days === 1 ? '' : 's'} ago`;
 }
 
 /**
@@ -486,9 +502,11 @@ function render(data) {
   }
 
   if (allPoints.length === 0) {
-    setStatus('No positions logged yet', 'stale');
+    el.coords.textContent = 'No positions logged yet';
+    el.fixTime.textContent = '';
+    el.fixAge.textContent = '';
     el.range.hidden = true;
-    el.exportWrap.hidden = true;
+    el.exportBtn.hidden = true;
     return;
   }
 
@@ -499,12 +517,14 @@ function render(data) {
   currentPoints = points;
 
   if (points.length === 0) {
-    setStatus('No positions in selected range', 'stale');
-    el.exportWrap.hidden = true;
+    el.coords.textContent = 'No positions in selected range';
+    el.fixTime.textContent = '';
+    el.fixAge.textContent = '';
+    el.exportBtn.hidden = true;
     return;
   }
 
-  el.exportWrap.hidden = false;
+  el.exportBtn.hidden = false;
 
   // The fetch loop can beat the style load on a cold start; the load handler
   // redraws from currentPoints when that happens.
@@ -514,22 +534,38 @@ function render(data) {
   const last = points[points.length - 1];
   el.coords.textContent = fmtCoord(last.lat, last.lon);
   el.fixTime.textContent = fmtWhen(last.ts);
+  el.fixAge.textContent = fmtAge(last.ts);
   renderEnv(last.env);
+}
 
-  // When narrowed, the marker sits at the end of the RANGE, not at the boat.
-  // Saying "Position current" there would be a lie.
-  if (isNarrowed()) {
-    setStatus(`Showing ${fmtDayLabel(el.rangeFrom.value)} – ${fmtDayLabel(el.rangeTo.value)}`);
-    return;
-  }
+// --- panel collapse (mobile only) ---
+// Desktop has room for the whole panel; only narrow viewports collapse. The
+// breakpoint is duplicated from the CSS — if one moves, move both.
+const MOBILE_QUERY = window.matchMedia('(max-width: 560px)');
 
-  const age = Date.now() - last.ts * 1000;
-  if (age > STALE_AFTER_MS) {
-    setStatus(`Last fix ${fmtWhen(last.ts)}`, 'stale');
+function setCollapsed(collapsed) {
+  panel.classList.toggle('collapsed', collapsed);
+  panelHandle.setAttribute('aria-expanded', String(!collapsed));
+}
+
+// Start collapsed on mobile: the landing view should be the map with a strip of
+// position, not a panel eating half the screen.
+function applyBreakpoint() {
+  if (MOBILE_QUERY.matches) {
+    setCollapsed(true);
   } else {
-    setStatus('Position current', 'live');
+    // Leaving mobile: never strand the desktop panel in a collapsed state it
+    // has no handle to escape from.
+    setCollapsed(false);
   }
 }
+
+panelHandle.addEventListener('click', () => {
+  setCollapsed(!panel.classList.contains('collapsed'));
+});
+
+MOBILE_QUERY.addEventListener('change', applyBreakpoint);
+applyBreakpoint();
 
 // --- export ---
 // Everything below serializes currentPoints — the FILTERED view. What you see
@@ -752,14 +788,22 @@ document.addEventListener('keydown', (e) => {
 
 // --- fetch loop ---
 
+// One failed poll is normal — a phone changing towers, a wifi blip. Two in a
+// row (~2 min of no contact) is worth surfacing. Reset on any success.
+const FAIL_THRESHOLD = 2;
+let consecutiveFails = 0;
+
 async function refresh() {
   try {
     const res = await fetch('/api/track', { cache: 'no-store' });
     if (!res.ok) throw new Error(`server returned ${res.status}`);
     const data = await res.json();
+    consecutiveFails = 0;
+    el.serverError.hidden = true;
     render(data);
   } catch (err) {
-    setStatus('Unable to reach tracker — retrying', 'stale');
+    consecutiveFails++;
+    if (consecutiveFails >= FAIL_THRESHOLD) el.serverError.hidden = false;
   }
 }
 

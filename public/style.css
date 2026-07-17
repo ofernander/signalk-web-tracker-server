@@ -104,6 +104,59 @@ html, body {
   color: var(--hull);
 }
 
+/* The age of the fix, appended to the label. Normal case and no letter-spacing
+   so it reads as data rather than part of the heading. */
+.readout-age {
+  text-transform: none;
+  letter-spacing: 0;
+  font-size: 0.72rem;
+}
+
+.readout-age::before {
+  /* NBSP after the separator — CSS trims a trailing plain space in content. */
+  content: " \00b7\00a0";
+}
+
+/* Nothing to append before the first fix lands. */
+.readout-age:empty::before {
+  content: none;
+}
+
+/* ---- Tracking server error ---- */
+/* Sits above the title: the first thing read, since nothing below it can be
+   trusted to be current while it's showing. */
+.server-error {
+  margin-bottom: 12px;
+  padding: 7px 10px;
+  border-radius: 3px;
+  border: 1px solid var(--buoy);
+  background: rgba(228, 87, 46, 0.12);
+  color: var(--buoy);
+  font-size: 0.7rem;
+  font-weight: 700;
+  text-transform: uppercase;
+  letter-spacing: 0.08em;
+  text-align: center;
+}
+
+.server-error[hidden] { display: none; }
+
+/* ---- Mobile collapse handle ---- */
+/* Desktop never collapses, so the handle doesn't exist there. */
+.panel-handle {
+  display: none;
+}
+
+.sr-only {
+  position: absolute;
+  width: 1px; height: 1px;
+  padding: 0; margin: -1px;
+  overflow: hidden;
+  clip: rect(0 0 0 0);
+  white-space: nowrap;
+  border: 0;
+}
+
 /* ---- Environment readings ---- */
 /* No border-top here — .readout's border-bottom already closes that section. */
 .env:not(:empty) {
@@ -263,6 +316,50 @@ html, body {
     border-left: none;
     border-right: none;
     border-bottom: none;
+    /* Room for the handle above the title. */
+    padding-top: 8px;
+    /* Never taller than the viewport; the body scrolls if the track has a lot
+       of env readings. */
+    max-height: 85vh;
+    overflow-y: auto;
+  }
+
+  .panel-handle {
+    display: block;
+    width: 100%;
+    /* A big target — the grip is small but the hit area is not. */
+    padding: 6px 0 10px;
+    background: transparent;
+    border: none;
+    cursor: pointer;
+  }
+
+  .panel-handle-grip {
+    display: block;
+    width: 40px;
+    height: 4px;
+    margin: 0 auto;
+    border-radius: 2px;
+    background: var(--paper-dim);
+  }
+
+  .panel-head {
+    /* Tighter than desktop — vertical space is the scarce thing here. */
+    margin-bottom: 10px;
+  }
+
+  .panel-head h1 {
+    font-size: 0.85rem;
+  }
+
+  /* Collapsed: only title + position + status remain. */
+  #panel.collapsed .panel-body {
+    display: none;
+  }
+
+  #panel.collapsed .readout {
+    border-bottom: none;
+    padding-bottom: 4px;
   }
 }
 
@@ -330,30 +427,33 @@ html, body {
   color: var(--deep);
 }
 
-/* ---- Export ---- */
-.export {
-  margin-top: 10px;
-}
-
-.export-btn {
-  width: 100%;
-  font-family: inherit;
-  font-size: 0.72rem;
-  font-weight: 600;
-  text-transform: uppercase;
-  letter-spacing: 0.1em;
-  color: var(--paper);
-  background: var(--hull);
-  border: 1px solid var(--hull);
+/* ---- Export: an icon on the date-range row ---- */
+/* Rare action, so it gets no visual weight at rest — it reads as part of the
+   range control rather than a call to action. */
+.export-icon {
+  flex: none;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  /* Matches the date inputs' height so the row stays level. */
+  width: 28px;
+  height: 28px;
+  padding: 0;
+  color: var(--hull);
+  background: rgba(255, 255, 255, 0.5);
+  border: 1px solid var(--paper-dim);
   border-radius: 3px;
-  padding: 7px;
   cursor: pointer;
 }
 
-.export-btn:hover {
-  background: var(--deep);
+.export-icon:hover {
+  color: var(--deep);
   border-color: var(--brass);
+  background: rgba(255, 255, 255, 0.85);
 }
+
+/* display: inline-flex above would otherwise defeat the hidden attribute. */
+.export-icon[hidden] { display: none; }
 
 /* ---- Export format picker ---- */
 /* Above the panel (z 1000) and MapLibre's controls. */
