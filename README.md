@@ -2,7 +2,9 @@
 
 Receives position reports from the [signalk-web-tracker](https://github.com/ofernander/signalk-web-tracker)
 plugin.
+
 ## Requirements
+- Public facing server with terminal access and basic web hosting knowledge
 - Docker and Docker Compose
 
 ## Install
