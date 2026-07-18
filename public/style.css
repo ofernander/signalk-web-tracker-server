@@ -303,6 +303,69 @@ html, body {
   text-align: right;
 }
 
+/* ---- Log popup: a written entry, not a fix ---- */
+/* Wider and softer than a point popup — this one has prose in it. */
+.log-popup {
+  max-width: 300px;
+}
+
+.lp-head {
+  font-size: 0.7rem;
+  font-weight: 700;
+  text-transform: uppercase;
+  letter-spacing: 0.08em;
+  color: var(--brass);
+}
+
+.lp-when {
+  margin-top: 2px;
+  font-size: 0.72rem;
+  color: var(--hull);
+  opacity: 0.8;
+}
+
+.lp-where {
+  font-family: ui-monospace, "SF Mono", "Cascadia Code", Menlo, monospace;
+  font-size: 0.9rem;
+  font-weight: 600;
+  margin-top: 3px;
+  white-space: nowrap;
+  color: var(--deep);
+}
+
+.lp-text {
+  margin: 8px 0 0;
+  font-size: 0.82rem;
+  line-height: 1.5;
+  color: var(--deep);
+  /* The boat's line breaks are the author's — keep them. */
+  white-space: pre-wrap;
+}
+
+.lp-photos {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 4px;
+  margin-top: 8px;
+}
+
+.lp-photos img {
+  width: 88px;
+  height: 88px;
+  object-fit: cover;
+  border-radius: 3px;
+  border: 1px solid var(--paper-dim);
+}
+
+.lp-foot {
+  margin-top: 8px;
+  padding-top: 6px;
+  border-top: 1px solid var(--paper-dim);
+  font-size: 0.68rem;
+  color: var(--hull);
+  opacity: 0.8;
+}
+
 /* ---- Responsive: panel docks to the bottom on narrow screens ---- */
 @media (max-width: 560px) {
   #panel {

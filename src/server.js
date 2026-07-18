@@ -2,9 +2,11 @@
  * Server — express wiring and startup.
  *
  * Route layout:
- *   POST /api/ingest   authenticated write path (raw body for HMAC)
- *   GET  /api/track    public read-only JSON for the map
- *   GET  /*            static map UI from public/
+ *   POST /api/ingest      authenticated write path for track points (raw body for HMAC)
+ *   POST /api/ingest/log  authenticated write path for logs + photos (raw body for HMAC)
+ *   GET  /api/track       public read-only JSON for the map
+ *   GET  /photos/*        public log photos, served off disk
+ *   GET  /*               static map UI from public/
  *
  * The ingest route needs the EXACT request bytes to verify the HMAC, so it uses
  * a raw body parser that stashes the buffer on req.rawBody. The rest of the app
@@ -19,6 +21,7 @@ const path = require('node:path');
 const config = require('./config');
 const db = require('./db');
 const ingestHandler = require('./ingest');
+const makeLogHandler = require('./ingestLog');
 const trackHandler = require('./api');
 
 function start() {
@@ -41,8 +44,30 @@ function start() {
     ingestHandler
   );
 
+  // Log ingest: same raw-body treatment as track ingest. Photos ride along
+  // base64'd inside the JSON, so the limit has to cover the boat's 3.5MB photo
+  // cap plus ~33% encoding overhead.
+  app.post(
+    '/api/ingest/log',
+    express.raw({ type: '*/*', limit: '5mb' }),
+    (req, res, next) => {
+      req.rawBody = Buffer.isBuffer(req.body) ? req.body.toString('utf8') : '';
+      next();
+    },
+    makeLogHandler(ingestHandler.rateLimited)
+  );
+
   // Public read-only track data.
   app.get('/api/track', trackHandler);
+
+  // Log photos. Public, same as the track. Immutable once written — a filename
+  // is derived from the log uuid and its sequence, so the same name always means
+  // the same image.
+  app.use('/photos', express.static(config.photoDir, {
+    maxAge: '30d',
+    immutable: true,
+    fallthrough: false
+  }));
 
   // Static map UI.
   app.use(express.static(path.join(__dirname, '..', 'public')));

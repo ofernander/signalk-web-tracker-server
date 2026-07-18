@@ -21,9 +21,11 @@ const SEAMARK_TILES = 'https://tiles.openseamap.org/seamark/{z}/{x}/{y}.png';
 const SRC_ROUTE = 'route';
 const SRC_POINTS = 'points';
 const SRC_SEAMARK = 'seamark';
+const SRC_LOGS = 'logs';
 const LYR_ROUTE = 'route-line';
 const LYR_POINTS = 'point-circles';
 const LYR_SEAMARK = 'seamark-tiles';
+const LYR_LOGS = 'log-circles';
 
 // --- map setup ---
 
@@ -47,6 +49,13 @@ let styleReady = false;
 // index into this; the popup looks the real object up here. Keeps nested env
 // objects out of MapLibre's feature properties entirely.
 let currentPoints = [];
+
+// Logs from the boat's noon-log plugin, filtered the same way points are. A log
+// is a written entry carrying its own position — a different kind of record
+// from a track fix, so it gets its own source, layer, and popup rather than
+// being merged into the points.
+let allLogs = [];
+let currentLogs = [];
 
 const el = {
   vesselName: document.getElementById('vessel-name'),
@@ -207,6 +216,91 @@ function buildPopup(point) {
   return wrap;
 }
 
+/**
+ * Popup for a log entry. Same DOM-not-markup rule as buildPopup — the text is
+ * written by a human on the boat and must never be injected as HTML.
+ */
+function buildLogPopup(log) {
+  const wrap = document.createElement('div');
+  wrap.className = 'log-popup';
+
+  // Heading is the voyage name. noon-log has no title field; the voyage is what
+  // tells a reader which passage this entry belongs to.
+  const head = document.createElement('div');
+  head.className = 'lp-head';
+  head.textContent = log.voyage || 'Log';
+  wrap.appendChild(head);
+
+  const when = document.createElement('div');
+  when.className = 'lp-when';
+  when.textContent = fmtWhen(log.ts);
+  wrap.appendChild(when);
+
+  // Where the log was written. The boat's OWN reported position at log time —
+  // independent of the track line, which is only straight interpolation between
+  // the tracker plugin's fixes. Worth showing rather than inferring from where
+  // the marker landed.
+  if (typeof log.lat === 'number' && typeof log.lon === 'number') {
+    const where = document.createElement('div');
+    where.className = 'lp-where';
+    where.textContent = fmtCoord(log.lat, log.lon);
+    wrap.appendChild(where);
+  }
+
+  if (log.text) {
+    const body = document.createElement('p');
+    body.className = 'lp-text';
+    body.textContent = log.text;
+    wrap.appendChild(body);
+  }
+
+  // Photos are served off the tracker's own /photos — immutable once written,
+  // so they cache hard.
+  if (Array.isArray(log.photos) && log.photos.length > 0) {
+    const gallery = document.createElement('div');
+    gallery.className = 'lp-photos';
+    for (const name of log.photos) {
+      const img = document.createElement('img');
+      img.src = `/photos/${name}`;
+      img.alt = '';
+      img.loading = 'lazy';
+      gallery.appendChild(img);
+    }
+    wrap.appendChild(gallery);
+  }
+
+  const readings = (log.env || []).filter(
+    i => i && i.value !== null && i.value !== undefined
+  );
+
+  if (readings.length > 0) {
+    const list = document.createElement('dl');
+    list.className = 'pp-env';
+    for (const item of readings) {
+      const dt = document.createElement('dt');
+      dt.textContent = item.label || '';
+      const dd = document.createElement('dd');
+      dd.textContent = `${fmtValue(item.value)}${item.unit ? ` ${item.unit}` : ''}`;
+      list.appendChild(dt);
+      list.appendChild(dd);
+    }
+    wrap.appendChild(list);
+  }
+
+  const dist = log.distance || {};
+  if (dist.sinceLast !== null && dist.sinceLast !== undefined) {
+    const foot = document.createElement('div');
+    foot.className = 'lp-foot';
+    const total = (dist.total !== null && dist.total !== undefined)
+      ? ` · ${fmtValue(dist.total)} nm total`
+      : '';
+    foot.textContent = `${fmtValue(dist.sinceLast)} nm since last${total}`;
+    wrap.appendChild(foot);
+  }
+
+  return wrap;
+}
+
 // --- date range ---
 // Dates are handled as YYYY-MM-DD in the VIEWER'S LOCAL timezone, because the
 // picker is local and a viewer asking for "the 14th" means their 14th. The
@@ -230,11 +324,12 @@ function dayEndSec(iso) {
   return Math.floor(new Date(y, m - 1, d, 23, 59, 59, 999).getTime() / 1000);
 }
 
-function filterPoints(points, fromISO, toISO) {
-  if (!fromISO && !toISO) return points;
+// Works for points and logs alike — both are { ts, ... }.
+function filterByRange(records, fromISO, toISO) {
+  if (!fromISO && !toISO) return records;
   const lo = fromISO ? dayStartSec(fromISO) : -Infinity;
   const hi = toISO ? dayEndSec(toISO) : Infinity;
-  return points.filter(p => p.ts >= lo && p.ts <= hi);
+  return records.filter(r => r.ts >= lo && r.ts <= hi);
 }
 
 function isNarrowed() {
@@ -337,7 +432,7 @@ function applyRange() {
   writeRangeToURL();
   // Re-fit on the next draw: a new range is a new extent worth framing.
   hasFitOnce = false;
-  render({ vessel: null, points: allPoints });
+  render({ vessel: null, points: allPoints, logs: allLogs });
 }
 
 el.rangeFrom.addEventListener('change', applyRange);
@@ -347,7 +442,7 @@ el.rangeReset.addEventListener('click', () => {
   rangeTo = null;
   writeRangeToURL();
   hasFitOnce = false;
-  render({ vessel: null, points: allPoints });
+  render({ vessel: null, points: allPoints, logs: allLogs });
 });
 
 // --- GeoJSON builders ---
@@ -376,6 +471,82 @@ function pointsGeoJSON(points) {
       properties: { idx: i }
     }))
   };
+}
+
+// Only logs with a position can be drawn. A log written with no GPS fix is
+// stored server-side but has nowhere to go on a map. The index carried is into
+// currentLogs, so the filter must run before this does.
+//
+// Log markers are SNAPPED to the nearest point on the route line. The two
+// plugins report positions that differ by a small, constant lateral offset, so
+// unsnapped logs sit in a line parallel to the track — visibly wrong at close
+// zoom. The popup still shows the log's OWN reported coordinates; only the
+// marker moves. Projection is perpendicular, so a log keeps its place ALONG the
+// route: snapping to the nearest track point instead could shift it by hours on
+// a 6- or 12-hour report cycle.
+function logsGeoJSON(logs, routePoints) {
+  return {
+    type: 'FeatureCollection',
+    features: logs
+      .map((l, i) => ({ l, i }))
+      .filter(({ l }) => typeof l.lat === 'number' && typeof l.lon === 'number')
+      .map(({ l, i }) => {
+        const snapped = snapToRoute(l.lon, l.lat, routePoints);
+        return {
+          type: 'Feature',
+          geometry: { type: 'Point', coordinates: snapped },
+          properties: { idx: i }
+        };
+      })
+  };
+}
+
+/**
+ * Nearest point on the route polyline to [lon, lat], as [lon, lat].
+ *
+ * Works in raw degrees rather than a projected space. That distorts distance by
+ * cos(latitude) — a degree of longitude is narrower than a degree of latitude
+ * away from the equator — but the offset here is tiny and local, so the nearest
+ * segment is the same either way. Scaling longitude by cos(lat) would be more
+ * correct and is worth doing if this ever needs to be accurate rather than just
+ * visually right.
+ *
+ * Falls back to the log's own position when the route is empty or degenerate.
+ */
+function snapToRoute(lon, lat, routePoints) {
+  if (!routePoints || routePoints.length === 0) return [lon, lat];
+  if (routePoints.length === 1) return [routePoints[0].lon, routePoints[0].lat];
+
+  let best = [lon, lat];
+  let bestDistSq = Infinity;
+
+  for (let i = 0; i < routePoints.length - 1; i++) {
+    const ax = routePoints[i].lon;
+    const ay = routePoints[i].lat;
+    const bx = routePoints[i + 1].lon;
+    const by = routePoints[i + 1].lat;
+
+    const dx = bx - ax;
+    const dy = by - ay;
+    const lenSq = dx * dx + dy * dy;
+
+    // Duplicate consecutive fixes make a zero-length segment; project onto the
+    // endpoint rather than dividing by zero.
+    let t = lenSq === 0 ? 0 : ((lon - ax) * dx + (lat - ay) * dy) / lenSq;
+    // Clamp to the segment: past an endpoint the nearest point IS the endpoint.
+    t = Math.max(0, Math.min(1, t));
+
+    const px = ax + t * dx;
+    const py = ay + t * dy;
+    const distSq = (lon - px) * (lon - px) + (lat - py) * (lat - py);
+
+    if (distSq < bestDistSq) {
+      bestDistSq = distSq;
+      best = [px, py];
+    }
+  }
+
+  return best;
 }
 
 // --- style setup ---
@@ -454,6 +625,48 @@ map.on('load', () => {
     map.getCanvas().style.cursor = '';
   });
 
+  // Logs sit ABOVE the track points: where a log and a fix coincide, the log is
+  // the more interesting record and should take the click. Brass and bigger so
+  // it reads as a different kind of thing, not just another fix.
+  map.addSource(SRC_LOGS, {
+    type: 'geojson',
+    data: logsGeoJSON([], [])
+  });
+  map.addLayer({
+    id: LYR_LOGS,
+    type: 'circle',
+    source: SRC_LOGS,
+    paint: {
+      'circle-radius': 8,
+      'circle-color': '#c9a227',
+      'circle-opacity': 0.95,
+      'circle-stroke-width': 2,
+      'circle-stroke-color': '#eae3d2'
+    }
+  });
+
+  map.on('click', LYR_LOGS, (e) => {
+    const feature = e.features && e.features[0];
+    if (!feature) return;
+    const log = currentLogs[feature.properties.idx];
+    if (!log) return;
+
+    // Anchor to the feature's own geometry — the SNAPPED position — so the
+    // popup's tip points at the marker rather than at the log's raw coordinates
+    // some distance off the line. The popup body still reports the real ones.
+    new maplibregl.Popup({ closeButton: true, maxWidth: '320px' })
+      .setLngLat(feature.geometry.coordinates)
+      .setDOMContent(buildLogPopup(log))
+      .addTo(map);
+  });
+
+  map.on('mouseenter', LYR_LOGS, () => {
+    map.getCanvas().style.cursor = 'pointer';
+  });
+  map.on('mouseleave', LYR_LOGS, () => {
+    map.getCanvas().style.cursor = '';
+  });
+
   styleReady = true;
   if (currentPoints.length > 0) drawTrack(currentPoints);
 });
@@ -469,6 +682,7 @@ map.on('load', () => {
 function drawTrack(points) {
   map.getSource(SRC_ROUTE).setData(routeGeoJSON(points));
   map.getSource(SRC_POINTS).setData(pointsGeoJSON(points));
+  map.getSource(SRC_LOGS).setData(logsGeoJSON(currentLogs, points));
 
   const last = points[points.length - 1];
   const here = [last.lon, last.lat];
@@ -494,6 +708,7 @@ function drawTrack(points) {
 
 function render(data) {
   allPoints = data.points || [];
+  allLogs = data.logs || [];
 
   // Vessel name comes from the server's VESSEL_NAME env var.
   if (data.vessel) {
@@ -513,8 +728,9 @@ function render(data) {
   syncRangeUI();
 
   // currentPoints is the filtered view. Everything downstream draws from it.
-  const points = filterPoints(allPoints, rangeFrom, rangeTo);
+  const points = filterByRange(allPoints, rangeFrom, rangeTo);
   currentPoints = points;
+  currentLogs = filterByRange(allLogs, rangeFrom, rangeTo);
 
   if (points.length === 0) {
     el.coords.textContent = 'No positions in selected range';

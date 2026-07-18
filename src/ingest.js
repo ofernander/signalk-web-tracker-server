@@ -127,3 +127,6 @@ function handler(req, res) {
 }
 
 module.exports = handler;
+// Shared with the log ingest route so a flood on either counts against the same
+// per-IP budget.
+module.exports.rateLimited = rateLimited;

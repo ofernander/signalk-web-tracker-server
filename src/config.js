@@ -46,6 +46,10 @@ const config = {
   // Where the sqlite database lives. Defaults to the data/ volume mount.
   dbPath: process.env.DB_PATH || path.join(__dirname, '..', 'data', 'web-tracker-server.db'),
 
+  // Where log photos land. Sits inside the same volume mount as the db so a
+  // single bind mount covers all persistent state.
+  photoDir: process.env.PHOTO_DIR || path.join(__dirname, '..', 'data', 'photos'),
+
   // Simple in-process rate limit for the ingest endpoint (defense-in-depth on
   // top of HMAC). Max requests per window per client IP.
   ingestRateMax: optionalInt('INGEST_RATE_MAX', 60),
