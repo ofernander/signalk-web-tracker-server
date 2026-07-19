@@ -34,10 +34,15 @@ const map = new maplibregl.Map({
   style: BASEMAP_STYLE,
   center: [0, 0],
   zoom: 1,
-  attributionControl: true
+  // Attribution added separately below as a compact (collapsed) control.
+  attributionControl: false
 });
 
 map.addControl(new maplibregl.NavigationControl(), 'top-left');
+// Collapsed attribution: a compact ⓘ button, bottom-right, that expands on
+// click. Keeps the required OSM / OpenSeaMap / OpenFreeMap credits reachable
+// without the always-open bar taking a strip of the map.
+map.addControl(new maplibregl.AttributionControl({ compact: true }));
 
 // The live-position buoy. A DOM element positioned by MapLibre — the only
 // marker that isn't drawn on the GL canvas.
@@ -49,6 +54,11 @@ let styleReady = false;
 // index into this; the popup looks the real object up here. Keeps nested env
 // objects out of MapLibre's feature properties entirely.
 let currentPoints = [];
+
+// The collapsed subset actually drawn (coincident snapped positions merged).
+// Point features index into THIS, not currentPoints, so popups resolve to the
+// right object after the merge. currentPoints stays full-resolution for export.
+let drawnPoints = [];
 
 // Logs from the boat's noon-log plugin, filtered the same way points are. A log
 // is a written entry carrying its own position — a different kind of record
@@ -477,7 +487,8 @@ function pointsGeoJSON(points) {
       type: 'Feature',
       geometry: { type: 'Point', coordinates: [p.lon, p.lat] },
       // Only the index travels as a feature property. The click handler reads
-      // the real point (with its nested env array) out of currentPoints.
+      // the real point (with its nested env array) out of drawnPoints — this
+      // collection is built from the collapsed set, so the indices line up.
       properties: { idx: i }
     }))
   };
@@ -626,7 +637,9 @@ map.on('load', () => {
     const logsHere = map.queryRenderedFeatures(e.point, { layers: [LYR_LOGS] });
     if (logsHere.length > 0) return;
 
-    const point = currentPoints[feature.properties.idx];
+    // Features index into drawnPoints (the collapsed set actually rendered),
+    // not currentPoints — the two differ wherever coincident positions merged.
+    const point = drawnPoints[feature.properties.idx];
     if (!point) return;
 
     new maplibregl.Popup({ closeButton: true, maxWidth: 'none' })
@@ -684,9 +697,39 @@ map.on('load', () => {
 
   styleReady = true;
   if (currentPoints.length > 0) drawTrack(currentPoints);
+
+  // The compact attribution control starts EXPANDED — compact:true only makes it
+  // collapsIBLE (it opens by default and would collapse on the first map move).
+  // It's a <details> element, so remove `open` to start it closed; older builds
+  // use a class instead, so clear that too. Clicking the ⓘ still toggles it.
+  const attrib = document.querySelector('.maplibregl-ctrl-attrib');
+  if (attrib) {
+    attrib.removeAttribute('open');
+    attrib.classList.remove('maplibregl-compact-show');
+  }
 });
 
 // --- draw ---
+
+/**
+ * Collapse runs of consecutive points that share the exact same coordinates.
+ * The server snaps stationary points onto one position, so a long sit is many
+ * rows at one lat/lon. This is a DRAW-ONLY transform: it keeps the last row of
+ * each run (latest env/timestamp wins in the popup) and never touches
+ * currentPoints, so export and the point count stay full-resolution.
+ */
+function collapseCoincident(points) {
+  const out = [];
+  for (const p of points) {
+    const prev = out[out.length - 1];
+    if (prev && prev.lat === p.lat && prev.lon === p.lon) {
+      out[out.length - 1] = p; // same spot — keep the newer reading
+    } else {
+      out.push(p);
+    }
+  }
+  return out;
+}
 
 /**
  * Push the whole track to the map. Unlike the old Leaflet version there is no
@@ -695,11 +738,16 @@ map.on('load', () => {
  * server-side all handle themselves.
  */
 function drawTrack(points) {
-  map.getSource(SRC_ROUTE).setData(routeGeoJSON(points));
-  map.getSource(SRC_POINTS).setData(pointsGeoJSON(points));
-  map.getSource(SRC_LOGS).setData(logsGeoJSON(currentLogs, points));
+  // Draw-only collapse of coincident (snapped) positions. currentPoints, which
+  // export and the counter read, is left at full resolution.
+  const drawn = collapseCoincident(points);
+  drawnPoints = drawn;
 
-  const last = points[points.length - 1];
+  map.getSource(SRC_ROUTE).setData(routeGeoJSON(drawn));
+  map.getSource(SRC_POINTS).setData(pointsGeoJSON(drawn));
+  map.getSource(SRC_LOGS).setData(logsGeoJSON(currentLogs, drawn));
+
+  const last = drawn[drawn.length - 1];
   const here = [last.lon, last.lat];
 
   if (vesselMarker) {
@@ -798,6 +846,37 @@ panelHandle.addEventListener('click', () => {
 
 MOBILE_QUERY.addEventListener('change', applyBreakpoint);
 applyBreakpoint();
+
+// --- map control offset ---
+// The desktop top bar (#panel) overlays the map's top edge, so the top-left /
+// top-right MapLibre control stacks must sit below it. The bar's height isn't
+// fixed — it grows with the number of env readings, a long vessel name, or a
+// narrower viewport wrapping the row — so a hardcoded CSS margin can't track it
+// (it guessed wrong repeatedly). Measure the bar and offset the controls by its
+// height plus a gap that matches the controls' own edge margin. Below the
+// desktop breakpoint the panel docks to the BOTTOM, so the top controls take no
+// offset.
+const CTRL_GAP = 10;
+
+function syncControlOffset() {
+  const stacks = document.querySelectorAll(
+    '.maplibregl-ctrl-top-left, .maplibregl-ctrl-top-right'
+  );
+  const offset = MOBILE_QUERY.matches ? 0 : panel.offsetHeight + CTRL_GAP;
+  for (const s of stacks) {
+    s.style.marginTop = offset ? `${offset}px` : '';
+  }
+}
+
+// Recompute whenever the bar reflows (env readings landing, a wrap change) and
+// on viewport changes that cross or resize the layout. ResizeObserver's initial
+// callback isn't guaranteed everywhere, so call once explicitly too.
+if ('ResizeObserver' in window) {
+  new ResizeObserver(syncControlOffset).observe(panel);
+}
+window.addEventListener('resize', syncControlOffset);
+MOBILE_QUERY.addEventListener('change', syncControlOffset);
+syncControlOffset();
 
 // --- export ---
 // Everything below serializes currentPoints — the FILTERED view. What you see

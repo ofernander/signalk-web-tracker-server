@@ -583,11 +583,9 @@ html, body {
 
   /* Both map control stacks are pinned to the top; push them below the bar so
      it neither covers the zoom buttons (top-left) nor lets a control edge show
-     through under the bar (top-right). Matched to the two-row bar height. */
-  .maplibregl-ctrl-top-left,
-  .maplibregl-ctrl-top-right {
-    margin-top: 120px;
-  }
+     through under the bar (top-right). The offset is set in JS from the bar's
+     measured height (syncControlOffset) — a hardcoded value here can't track a
+     bar whose height changes with env rows / name length / viewport. */
 }
 
 /* ---- Date range: a footer control below the status line ---- */
@@ -883,6 +881,38 @@ html, body {
   object-fit: contain;
   border-radius: 3px;
   box-shadow: 0 8px 40px rgba(0, 0, 0, 0.5);
+}
+
+/* ---- Repo tab: a small floating GitHub link back to the project ---- */
+/* Bottom-left corner of the map, logo only. Low z-index so the docked mobile
+   panel (which expands from the bottom) always wins if the two ever overlap.
+   Zoom controls are top-left, so the bottom-left corner is clear. */
+.repo-tab {
+  position: absolute;
+  z-index: 500;
+  bottom: 12px;
+  left: 12px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 34px;
+  height: 34px;
+  color: var(--paper);
+  background: rgba(11, 43, 58, 0.82);
+  border: 1px solid rgba(234, 227, 210, 0.25);
+  border-radius: 50%;
+  box-shadow: 0 2px 10px rgba(0, 0, 0, 0.3);
+  backdrop-filter: blur(2px);
+}
+
+.repo-tab:hover {
+  color: #fff;
+  border-color: var(--brass);
+}
+
+.repo-tab svg {
+  flex: none;
+  fill: currentColor;
 }
 
 /* ---- Accessibility floors ---- */

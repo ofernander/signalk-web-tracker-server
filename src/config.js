@@ -53,7 +53,13 @@ const config = {
   // Simple in-process rate limit for the ingest endpoint (defense-in-depth on
   // top of HMAC). Max requests per window per client IP.
   ingestRateMax: optionalInt('INGEST_RATE_MAX', 60),
-  ingestRateWindowSec: optionalInt('INGEST_RATE_WINDOW_SEC', 60)
+  ingestRateWindowSec: optionalInt('INGEST_RATE_WINDOW_SEC', 60),
+
+  // Positions within this many meters of the last stored position are snapped
+  // to it rather than stored as new coordinates — collapses stationary GPS
+  // jitter so the track stays honest to real voyage movement. See ingest path
+  // in db.js (ingestBatch).
+  movementThresholdM: optionalInt('MOVEMENT_THRESHOLD_M', 100)
 };
 
 module.exports = config;
