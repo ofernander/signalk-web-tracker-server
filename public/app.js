@@ -69,6 +69,7 @@ let currentLogs = [];
 
 const el = {
   vesselName: document.getElementById('vessel-name'),
+  vesselMiles: document.getElementById('vessel-miles'),
   coords: document.getElementById('coords'),
   fixTime: document.getElementById('fix-time'),
   fixAge: document.getElementById('fix-age'),
@@ -188,6 +189,26 @@ function fmtAge(tsSec) {
 
   const days = Math.floor(hours / 24);
   return `${days} day${days === 1 ? '' : 's'} ago`;
+}
+
+// Total distance in nautical miles: consecutive great-circle hops summed over
+// the given points. Honest without any movement filter because the server
+// already snapped stationary jitter onto one coordinate, so coincident points
+// contribute zero. Called with currentPoints (the date-filtered view).
+function totalNm(points) {
+  const R = 6371000; // earth radius, meters
+  const toRad = d => d * Math.PI / 180;
+  let meters = 0;
+  for (let i = 1; i < points.length; i++) {
+    const a = points[i - 1], b = points[i];
+    const dLat = toRad(b.lat - a.lat);
+    const dLon = toRad(b.lon - a.lon);
+    const s =
+      Math.sin(dLat / 2) ** 2 +
+      Math.cos(toRad(a.lat)) * Math.cos(toRad(b.lat)) * Math.sin(dLon / 2) ** 2;
+    meters += 2 * R * Math.asin(Math.sqrt(s));
+  }
+  return meters / 1852; // meters -> nautical miles
 }
 
 /**
@@ -783,6 +804,7 @@ function render(data) {
     el.coords.textContent = 'No positions logged yet';
     el.fixTime.textContent = '';
     el.fixAge.textContent = '';
+    el.vesselMiles.hidden = true;
     el.range.hidden = true;
     el.exportBtn.hidden = true;
     return;
@@ -799,6 +821,7 @@ function render(data) {
     el.coords.textContent = 'No positions in selected range';
     el.fixTime.textContent = '';
     el.fixAge.textContent = '';
+    el.vesselMiles.hidden = true;
     el.exportBtn.hidden = true;
     return;
   }
@@ -815,6 +838,12 @@ function render(data) {
   el.fixTime.textContent = fmtWhen(last.ts);
   el.fixAge.textContent = fmtAge(last.ts);
   renderEnv(last.env);
+
+  // Total distance for the CURRENT view (currentPoints is the date-filtered
+  // set), so it tracks the range and matches what's drawn and exported.
+  const nm = Math.round(totalNm(currentPoints));
+  el.vesselMiles.textContent = `${nm.toLocaleString()} nm`;
+  el.vesselMiles.hidden = false;
 }
 
 // --- panel collapse (mobile only) ---

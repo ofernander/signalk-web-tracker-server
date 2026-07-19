@@ -72,6 +72,20 @@ html, body {
   text-align: center;
 }
 
+/* Total voyage distance, a quiet line under the vessel name. Tracks the
+   date-range view, so it reads as "miles shown" not a fixed odometer. */
+.vessel-miles {
+  margin-top: 3px;
+  font-family: ui-monospace, "SF Mono", "Cascadia Code", Menlo, monospace;
+  font-size: 0.78rem;
+  font-weight: 600;
+  color: var(--hull);
+  letter-spacing: 0.02em;
+  text-align: center;
+}
+
+.vessel-miles[hidden] { display: none; }
+
 /* ---- Live position readout: the hero of the panel ---- */
 .readout {
   padding: 12px 0 14px;
@@ -470,6 +484,13 @@ html, body {
   .panel-head h1 {
     font-size: 1rem;
     white-space: nowrap;
+  }
+
+  /* Centered under the title, matching the mobile card. panel-head shrinks to
+     its content on the bar, so centering lands the miles under the name. */
+  .vessel-miles {
+    margin-top: 2px;
+    font-size: 0.72rem;
   }
 
   /* Position readout stays the hero — big mono coords — but loses the card
