@@ -100,6 +100,18 @@
     </div>
   </div>
 
+  <!-- Log reader. A log entry can carry a lot of prose and photos, far more
+       than an inline map popup can hold without growing off-screen. Clicking a
+       log dot opens this centered, scrollable modal instead. Hidden until then;
+       the card body is filled by JS from the clicked log. -->
+  <div class="modal log-modal" id="log-modal" hidden>
+    <div class="modal-backdrop" id="log-backdrop"></div>
+    <div class="modal-card log-modal-card" role="dialog" aria-modal="true" aria-label="Log entry">
+      <button type="button" class="log-modal-close" id="log-close" aria-label="Close">&times;</button>
+      <div class="log-modal-body" id="log-modal-body"></div>
+    </div>
+  </div>
+
   <script src="https://unpkg.com/maplibre-gl@5.6.0/dist/maplibre-gl.js"></script>
   <script src="app.js"></script>
 </body>

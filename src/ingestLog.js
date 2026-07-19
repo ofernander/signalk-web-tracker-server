@@ -151,6 +151,19 @@ function makeHandler(rateLimited) {
     const decoded = decodePhotos(payload.photos);
     if (decoded.error) return res.status(400).json({ error: decoded.error });
 
+    // A log is only a log if it has written text OR at least one photo. A bare
+    // position is the tracking plugin's job, not this endpoint's — noon-log
+    // gates these out client-side, but the server does not trust the client:
+    // accept-and-drop keeps a misbehaving or outdated caller from planting
+    // blank markers on the map. 2xx so the caller treats it as done and does
+    // not retry; nothing is stored.
+    const hasText = typeof log.logText === 'string' && log.logText.trim().length > 0;
+    const hasPhotos = decoded.photos.length > 0;
+    if (!hasText && !hasPhotos) {
+      console.log(`[ingestLog] ${ip}: ${log.uuid} dropped — no text or photos`);
+      return res.json({ uuid: log.uuid, stored: false, dropped: true, photos: 0 });
+    }
+
     // Filenames are derived from the validated uuid, never from the wire.
     const filenames = decoded.photos.map((p, i) => `${log.uuid}-${i}.${p.ext}`);
 

@@ -72,7 +72,11 @@ const el = {
   exportBackdrop: document.getElementById('export-backdrop'),
   exportCancel: document.getElementById('export-cancel'),
   exportModalSub: document.getElementById('export-modal-sub'),
-  serverError: document.getElementById('server-error')
+  serverError: document.getElementById('server-error'),
+  logModal: document.getElementById('log-modal'),
+  logBackdrop: document.getElementById('log-backdrop'),
+  logClose: document.getElementById('log-close'),
+  logModalBody: document.getElementById('log-modal-body')
 };
 
 const panel = document.getElementById('panel');
@@ -264,6 +268,12 @@ function buildLogPopup(log) {
       img.src = `/photos/${name}`;
       img.alt = '';
       img.loading = 'lazy';
+      // Click a thumbnail to view it full-size. The thumbnail already points
+      // at the full image (/photos/<name>); CSS only sizes it down, so the
+      // overlay shows the same URL at natural size — no second fetch.
+      img.classList.add('lp-photo--clickable');
+      const fullUrl = `/photos/${name}`;
+      img.addEventListener('click', () => openPhotoOverlay(fullUrl));
       gallery.appendChild(img);
     }
     wrap.appendChild(gallery);
@@ -609,6 +619,13 @@ map.on('load', () => {
   map.on('click', LYR_POINTS, (e) => {
     const feature = e.features && e.features[0];
     if (!feature) return;
+
+    // If a log dot is also under the cursor, it wins — a log is the more
+    // interesting record where the two coincide. The two layers have
+    // independent click handlers, so without this both popups would open.
+    const logsHere = map.queryRenderedFeatures(e.point, { layers: [LYR_LOGS] });
+    if (logsHere.length > 0) return;
+
     const point = currentPoints[feature.properties.idx];
     if (!point) return;
 
@@ -651,13 +668,11 @@ map.on('load', () => {
     const log = currentLogs[feature.properties.idx];
     if (!log) return;
 
-    // Anchor to the feature's own geometry — the SNAPPED position — so the
-    // popup's tip points at the marker rather than at the log's raw coordinates
-    // some distance off the line. The popup body still reports the real ones.
-    new maplibregl.Popup({ closeButton: true, maxWidth: '320px' })
-      .setLngLat(feature.geometry.coordinates)
-      .setDOMContent(buildLogPopup(log))
-      .addTo(map);
+    // A log can carry long prose and photos — far more than an inline popup can
+    // show without growing off the map. Open it in a centered, scrollable modal
+    // instead. The popup body DOM is identical (buildLogPopup); only its
+    // container differs.
+    openLogModal(log);
   });
 
   map.on('mouseenter', LYR_LOGS, () => {
@@ -755,9 +770,10 @@ function render(data) {
 }
 
 // --- panel collapse (mobile only) ---
-// Desktop has room for the whole panel; only narrow viewports collapse. The
-// breakpoint is duplicated from the CSS — if one moves, move both.
-const MOBILE_QUERY = window.matchMedia('(max-width: 560px)');
+// Wide desktop has room for the whole panel as a top bar; anything 1200px and
+// below uses the docked card, which collapses. The breakpoint is duplicated
+// from the CSS (the two @media queries) — if one moves, move all three.
+const MOBILE_QUERY = window.matchMedia('(max-width: 1200px)');
 
 function setCollapsed(collapsed) {
   panel.classList.toggle('collapsed', collapsed);
@@ -1001,6 +1017,72 @@ for (const btn of document.querySelectorAll('.fmt')) {
 document.addEventListener('keydown', (e) => {
   if (e.key === 'Escape' && !el.exportModal.hidden) closeExportModal();
 });
+
+// --- log reader modal ---
+// A log dot opens here instead of an inline popup. The body is the same DOM
+// buildLogPopup produces; the modal just gives it room to scroll.
+
+function openLogModal(log) {
+  el.logModalBody.innerHTML = '';
+  el.logModalBody.appendChild(buildLogPopup(log));
+  // Scroll to the top in case a previous, longer log left it scrolled down.
+  el.logModalBody.scrollTop = 0;
+  el.logModal.hidden = false;
+  el.logClose.focus();
+}
+
+function closeLogModal() {
+  el.logModal.hidden = true;
+  el.logModalBody.innerHTML = '';
+}
+
+el.logClose.addEventListener('click', closeLogModal);
+el.logBackdrop.addEventListener('click', closeLogModal);
+document.addEventListener('keydown', (e) => {
+  if (e.key === 'Escape' && !el.logModal.hidden) closeLogModal();
+});
+
+// --- photo lightbox ---
+// A photo in the log modal opens full-size here, above the modal. Closing it
+// (backdrop, image, or Escape) returns to the log modal, not to the map — one
+// layer at a time. The overlay element is created on first use and reused.
+
+let photoOverlay = null;
+let photoOverlayKeyHandler = null;
+
+function openPhotoOverlay(url) {
+  if (!photoOverlay) {
+    photoOverlay = document.createElement('div');
+    photoOverlay.className = 'photo-overlay';
+    const img = document.createElement('img');
+    img.className = 'photo-overlay-img';
+    img.alt = '';
+    photoOverlay.appendChild(img);
+    photoOverlay.addEventListener('click', closePhotoOverlay);
+    document.body.appendChild(photoOverlay);
+  }
+  photoOverlay.querySelector('.photo-overlay-img').src = url;
+  photoOverlay.classList.add('open');
+
+  // Escape closes just the lightbox. stopPropagation keeps the log modal's own
+  // Escape handler from also firing, so one press peels one layer.
+  photoOverlayKeyHandler = (e) => {
+    if (e.key === 'Escape') {
+      e.stopPropagation();
+      closePhotoOverlay();
+    }
+  };
+  // Capture phase so this runs before the log modal's keydown listener.
+  document.addEventListener('keydown', photoOverlayKeyHandler, true);
+}
+
+function closePhotoOverlay() {
+  if (photoOverlay) photoOverlay.classList.remove('open');
+  if (photoOverlayKeyHandler) {
+    document.removeEventListener('keydown', photoOverlayKeyHandler, true);
+    photoOverlayKeyHandler = null;
+  }
+}
 
 // --- fetch loop ---
 

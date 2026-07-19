@@ -366,8 +366,11 @@ html, body {
   opacity: 0.8;
 }
 
-/* ---- Responsive: panel docks to the bottom on narrow screens ---- */
-@media (max-width: 560px) {
+/* ---- Responsive: panel docks to the bottom on narrow + medium screens ---- */
+/* Up to 1200px gets the docked card. The desktop top bar needs real horizontal
+   room; on a 13" tablet (~1024–1200px) it runs out and wraps badly, so tablets
+   get the clean docked layout too. Only genuinely wide screens get the bar. */
+@media (max-width: 1200px) {
   #panel {
     top: auto;
     bottom: 0;
@@ -423,6 +426,167 @@ html, body {
   #panel.collapsed .readout {
     border-bottom: none;
     padding-bottom: 4px;
+  }
+}
+
+/* ---- Wide desktop: the panel is a full-width top bar, not a floating card ---- */
+/* A big floating box over open water was in the way. On wide screens (>1200px)
+   the same elements lay out as a bar spanning the top edge: name + position +
+   range on row 1, every env reading on row 2 (wrapping if there are a lot).
+   At 1200px and below the docked card above is used instead — the bar needs the
+   width. */
+@media (min-width: 1201px) {
+  #panel {
+    top: 0;
+    left: 0;
+    right: 0;
+    width: 100%;
+    max-width: 100%;
+    border: none;
+    border-bottom: 1px solid var(--paper-dim);
+    border-radius: 0;
+    box-shadow: 0 2px 12px rgba(0, 0, 0, 0.25);
+    padding: 10px 20px;
+    display: flex;
+    flex-wrap: wrap;
+    align-items: center;
+    column-gap: 24px;
+    row-gap: 6px;
+  }
+
+  /* The wrapper vanishes from layout so .env and .range become direct flex
+     children of the bar — .env can then be forced onto its own row while
+     .range rides up on row 1. The element stays in the DOM so the mobile
+     collapse (which toggles .panel-body) still works below the breakpoint. */
+  .panel-body {
+    display: contents;
+  }
+
+  /* Vessel name: an inline heading at the far left, not a centered title. */
+  .panel-head {
+    margin-bottom: 0;
+  }
+
+  .panel-head h1 {
+    font-size: 1rem;
+    white-space: nowrap;
+  }
+
+  /* Position readout stays the hero — big mono coords — but loses the card
+     dividers. Grid places the hero coordinate alone on the left spanning both
+     rows, with the caption above the timestamp in a column to its right:
+
+       [ coordinate ]  label
+       [ coordinate ]  time
+
+     Mobile is untouched — .readout stays a plain block there, so these grid
+     rules simply don't apply below the breakpoint. */
+  .readout {
+    padding: 0;
+    border: none;
+    display: grid;
+    grid-template-columns: auto auto;
+    grid-template-rows: auto auto;
+    align-items: center;
+    column-gap: 14px;
+    row-gap: 0;
+  }
+
+  .readout-coords {
+    grid-column: 1;
+    grid-row: 1 / span 2;
+    font-size: 1.25rem;
+    align-self: center;
+  }
+
+  .readout-label {
+    grid-column: 2;
+    grid-row: 1;
+    margin-bottom: 0;
+    white-space: nowrap;
+    align-self: end;
+  }
+
+  .readout-time {
+    grid-column: 2;
+    grid-row: 2;
+    margin-top: 0;
+    font-size: 0.72rem;
+    white-space: nowrap;
+    align-self: start;
+  }
+
+  /* Row 2: every reading, horizontal, wrapping. flex-basis:100% forces the
+     line break so readings always start a fresh row under row 1. */
+  .env:not(:empty) {
+    order: 10;
+    flex-basis: 100%;
+    margin: 6px 0 0;
+    padding-top: 8px;
+    border-top: 1px solid var(--paper-dim);
+    display: flex;
+    flex-wrap: wrap;
+    gap: 6px 28px;
+  }
+
+  /* Each reading reads as "Label value" on one line rather than stacked. */
+  .env-item {
+    flex-direction: row;
+    align-items: baseline;
+    gap: 6px;
+  }
+
+  /* Range control rides up to row 1, pushed to the right. Label inline with
+     the inputs instead of stacked above them. Scoped under #panel so these win
+     over the base .range rules regardless of source order — the base block is
+     declared after this media query, and at equal specificity the later rule
+     would otherwise reassert its border-top/padding/margin (that was the stray
+     line under the date range). */
+  #panel .range {
+    order: 5;
+    margin: 0 0 0 auto;
+    padding: 0;
+    border: none;
+    display: flex;
+    align-items: center;
+    gap: 8px;
+  }
+
+  #panel .range-label {
+    margin-bottom: 0;
+    white-space: nowrap;
+  }
+
+  #panel .range-inputs {
+    flex: none;
+  }
+
+  #panel .range-inputs input[type="date"] {
+    flex: none;
+    width: auto;
+  }
+
+  /* Reset drops its top margin and full width — it's an inline button here,
+     sitting after the inputs rather than stacked below them. */
+  #panel .range-reset {
+    margin-top: 0;
+    width: auto;
+    white-space: nowrap;
+  }
+
+  /* Server-error pill sits inline at the far left of row 1 when it fires,
+     rather than as a full-width banner. */
+  .server-error {
+    order: -1;
+    margin-bottom: 0;
+  }
+
+  /* Both map control stacks are pinned to the top; push them below the bar so
+     it neither covers the zoom buttons (top-left) nor lets a control edge show
+     through under the bar (top-right). Matched to the two-row bar height. */
+  .maplibregl-ctrl-top-left,
+  .maplibregl-ctrl-top-right {
+    margin-top: 120px;
   }
 }
 
@@ -620,6 +784,105 @@ html, body {
 .modal-cancel:hover {
   border-color: var(--brass);
   color: var(--deep);
+}
+
+/* ---- Log reader modal ---- */
+/* Shares the .modal base (centered, backdrop, z 2000) but the card is a roomy
+   readable column that scrolls, rather than a compact picker. A long log fills
+   it and scrolls internally instead of growing off the map. */
+.log-modal-card {
+  max-width: 700px;
+  width: 70vw;
+  max-height: 80vh;
+  display: flex;
+  flex-direction: column;
+  padding: 0;
+}
+
+/* The close sits over the scrolling body, pinned to the card's top-right. */
+.log-modal-close {
+  position: absolute;
+  top: 6px;
+  right: 8px;
+  z-index: 1;
+  width: 30px;
+  height: 30px;
+  padding: 0;
+  font-size: 1.4rem;
+  line-height: 1;
+  color: var(--hull);
+  background: var(--paper);
+  border: 1px solid var(--paper-dim);
+  border-radius: 3px;
+  cursor: pointer;
+}
+
+.log-modal-close:hover {
+  border-color: var(--brass);
+  color: var(--deep);
+}
+
+.log-modal-body {
+  overflow-y: auto;
+  padding: 18px 20px 16px;
+}
+
+/* The log content is the same .lp-* DOM as the inline popup, but here it has
+   room to breathe: drop the popup's max-width cap and enlarge the photos. */
+.log-modal-body .log-popup {
+  max-width: none;
+}
+
+.log-modal-body .lp-photos img {
+  width: 140px;
+  height: 140px;
+}
+
+/* Mobile: fill the screen. A tap on the backdrop, the ×, or Escape returns to
+   the map. */
+@media (max-width: 560px) {
+  .log-modal {
+    padding: 0;
+  }
+
+  .log-modal-card {
+    width: 100%;
+    max-width: 100%;
+    height: 100%;
+    max-height: 100%;
+    border-radius: 0;
+  }
+}
+
+/* ---- Photo lightbox ---- */
+/* A photo from the log modal, full-size over a dark scrim. Above the modal
+   (z 2000) so it stacks on top; closing it returns to the modal. */
+.lp-photo--clickable {
+  cursor: zoom-in;
+}
+
+.photo-overlay {
+  display: none;
+  position: fixed;
+  inset: 0;
+  z-index: 3000;
+  align-items: center;
+  justify-content: center;
+  padding: 20px;
+  background: rgba(11, 43, 58, 0.9);
+  cursor: zoom-out;
+}
+
+.photo-overlay.open {
+  display: flex;
+}
+
+.photo-overlay-img {
+  max-width: 95%;
+  max-height: 95%;
+  object-fit: contain;
+  border-radius: 3px;
+  box-shadow: 0 8px 40px rgba(0, 0, 0, 0.5);
 }
 
 /* ---- Accessibility floors ---- */
