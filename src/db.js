@@ -129,14 +129,40 @@ function ingestBatch(points) {
   // Wrap in a transaction so a large batch is one disk sync, not N.
   db.exec('BEGIN');
   try {
+    // Running "last real position" the snap measures against. Seeded from the
+    // DB so the first point of a batch is compared to the true last fix, then
+    // advanced as we insert so within-batch movement is measured correctly too.
+    let anchor = getLastStored(); // { ts, lat, lon } | null
+    const threshold = config.movementThresholdM;
+
     for (const p of points) {
+      let lat = p.lat;
+      let lon = p.lon;
+
+      // If we have a prior position and this point hasn't moved past the
+      // threshold, snap its coordinates onto that prior position. The row is
+      // still stored (timestamp + env preserved) — only the coordinates
+      // collapse, so a stationary boat makes one dot and adds zero distance.
+      if (anchor && threshold > 0) {
+        const moved = haversineMeters(anchor.lat, anchor.lon, lat, lon);
+        if (moved < threshold) {
+          lat = anchor.lat;
+          lon = anchor.lon;
+        }
+      }
+
       const result = upsertStmt.run(
         p.ts,
-        p.lat,
-        p.lon,
+        lat,
+        lon,
         p.env ? JSON.stringify(p.env) : '[]'
       );
-      if (Number(result.changes) > 0) stored++;
+      if (Number(result.changes) > 0) {
+        stored++;
+        // Advance the anchor to the position actually stored (snapped or not),
+        // but only on a real insert — a deduped replay must not move it.
+        anchor = { ts: p.ts, lat, lon };
+      }
       if (typeof p.id === 'number' && p.id > accepted) accepted = p.id;
     }
     db.exec('COMMIT');
@@ -170,6 +196,34 @@ function getTrack() {
 function getCount() {
   const row = db.prepare('SELECT COUNT(*) AS n FROM points').get();
   return row ? row.n : 0;
+}
+
+/**
+ * Great-circle distance in meters between two lat/lon pairs. Mirrors the
+ * plugin's haversine (lib/distance.js) so the server measures movement the same
+ * way the boat does. Earth radius 6371000 m.
+ */
+function haversineMeters(lat1, lon1, lat2, lon2) {
+  const R = 6371000;
+  const toRad = d => (d * Math.PI) / 180;
+  const dLat = toRad(lat2 - lat1);
+  const dLon = toRad(lon2 - lon1);
+  const a =
+    Math.sin(dLat / 2) ** 2 +
+    Math.cos(toRad(lat1)) * Math.cos(toRad(lat2)) * Math.sin(dLon / 2) ** 2;
+  return 2 * R * Math.asin(Math.sqrt(a));
+}
+
+/**
+ * The most recently stored position (highest timestamp), or null if the table
+ * is empty. Used by the ingest snap to decide whether an incoming point has
+ * really moved.
+ */
+function getLastStored() {
+  const row = db.prepare(
+    `SELECT timestamp, latitude, longitude FROM points ORDER BY timestamp DESC LIMIT 1`
+  ).get();
+  return row ? { ts: row.timestamp, lat: row.latitude, lon: row.longitude } : null;
 }
 
 /**
